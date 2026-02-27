@@ -6,18 +6,13 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Eye, EyeOff, RefreshCw, Shield, Mail, Lock, UserPlus } from 'lucide-react';
+import { authAPI } from '@/services/authAPI';
 
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLogin: () => void;
+  onLogin: (token: string, user: any) => void;
 }
-
-// Valid credentials for demonstration
-const VALID_CREDENTIALS = {
-  email: 'demo@seeksikkim.com',
-  password: 'sikkim123'
-};
 
 const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin }) => {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
@@ -54,49 +49,94 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin }) => 
     setError('');
     setIsLoading(true);
 
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    if (mode === 'login') {
-      if (email === VALID_CREDENTIALS.email && password === VALID_CREDENTIALS.password) {
-        setStep('captcha');
+    try {
+      if (mode === 'login') {
+        // Call login API
+        const response = await authAPI.login({ email, password });
+        
+        if (response.success && response.token && response.user) {
+          // Store authentication state temporarily
+          sessionStorage.setItem('tempAuthToken', response.token);
+          sessionStorage.setItem('tempAuthUser', JSON.stringify(response.user));
+          setStep('captcha');
+        } else {
+          setError(response.message || 'Invalid email or password');
+        }
       } else {
-        setError('Invalid email or password. Use demo@seeksikkim.com / sikkim123');
+        // Signup validation
+        if (!fullName || !email || !password || !confirmPassword) {
+          setError('Please fill in all fields');
+        } else if (password !== confirmPassword) {
+          setError('Passwords do not match');
+        } else if (password.length < 6) {
+          setError('Password must be at least 6 characters long');
+        } else {
+          // Call register API
+          const response = await authAPI.register({ fullName, email, password });
+          
+          if (response.success && response.token && response.user) {
+            // Store authentication state temporarily
+            sessionStorage.setItem('tempAuthToken', response.token);
+            sessionStorage.setItem('tempAuthUser', JSON.stringify(response.user));
+            setStep('captcha');
+          } else {
+            if (response.errors && response.errors.length > 0) {
+              setError(response.errors[0].msg);
+            } else {
+              setError(response.message || 'Registration failed');
+            }
+          }
+        }
       }
-    } else {
-      // Signup validation
-      if (!fullName || !email || !password || !confirmPassword) {
-        setError('Please fill in all fields');
-      } else if (password !== confirmPassword) {
-        setError('Passwords do not match');
-      } else if (password.length < 6) {
-        setError('Password must be at least 6 characters long');
-      } else {
-        // Simulate successful signup
-        setStep('captcha');
-      }
+    } catch (error) {
+      setError('Connection error. Please check if the server is running.');
+      console.error('Auth error:', error);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleCaptchaVerification = async () => {
     setError('');
     setIsLoading(true);
 
-    // Simulate captcha verification delay
-    await new Promise(resolve => setTimeout(resolve, 800));
+    try {
+      // Verify captcha with backend
+      const response = await authAPI.verifyCaptcha({
+        captcha: userCaptchaInput,
+        expectedCaptcha: captchaCode
+      });
 
-    if (userCaptchaInput.toUpperCase() === captchaCode) {
-      // Store login status in localStorage
-      localStorage.setItem('isLoggedIn', 'true');
-      localStorage.setItem('loginTime', new Date().toISOString());
-      onLogin();
-      onClose();
-    } else {
-      setError('Invalid captcha. Please try again.');
+      if (response.success) {
+        // Retrieve temporary stored auth data
+        const tempToken = sessionStorage.getItem('tempAuthToken');
+        const tempUser = sessionStorage.getItem('tempAuthUser');
+        
+        if (tempToken && tempUser) {
+          // Clear temporary storage
+          sessionStorage.removeItem('tempAuthToken');
+          sessionStorage.removeItem('tempAuthUser');
+          
+          // Complete login
+          const userData = JSON.parse(tempUser);
+          onLogin(tempToken, userData);
+          onClose();
+        } else {
+          setError('Session expired. Please login again.');
+          setStep('auth');
+          resetForm();
+        }
+      } else {
+        setError('Invalid captcha. Please try again.');
+        generateCaptcha();
+      }
+    } catch (error) {
+      setError('Verification failed. Please try again.');
+      console.error('Captcha verification error:', error);
       generateCaptcha();
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -276,19 +316,6 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin }) => 
               <Alert variant="destructive">
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
-            )}
-
-            {mode === 'login' && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <Shield className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-                  <div className="text-xs text-blue-700">
-                    <p className="font-medium mb-1">Demo Credentials:</p>
-                    <p>Email: demo@seeksikkim.com</p>
-                    <p>Password: sikkim123</p>
-                  </div>
-                </div>
-              </div>
             )}
 
             <Button 

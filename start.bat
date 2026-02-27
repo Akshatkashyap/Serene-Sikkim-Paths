@@ -1,0 +1,13 @@
+@echo off
+echo Starting Serene Sikkim Paths Application...
+echo.
+
+echo Starting backend server...
+start "Backend Server" cmd /k "cd backend && npm run dev"
+
+echo Waiting for backend to initialize...
+timeout /t 3 /nobreak > nul
+
+echo Starting frontend server...
+echo.
+npm run dev

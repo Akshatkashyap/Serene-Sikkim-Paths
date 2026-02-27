@@ -1,11 +1,21 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { authAPI } from '@/services/authAPI';
+
+interface User {
+  id: string;
+  fullName: string;
+  email: string;
+  createdAt: string;
+}
 
 interface AuthContextType {
   isLoggedIn: boolean;
   showLoginModal: boolean;
-  login: () => void;
+  user: User | null;
+  login: (token: string, userData: User) => void;
   logout: () => void;
   closeLoginModal: () => void;
+  openLoginModal: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,26 +35,30 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
     // Check if user is already logged in
-    const loginStatus = localStorage.getItem('isLoggedIn');
-    const loginTime = localStorage.getItem('loginTime');
+    const token = authAPI.getToken();
+    const storedUser = authAPI.getUser();
     
-    if (loginStatus === 'true' && loginTime) {
-      // Check if login is still valid (24 hours)
-      const now = new Date();
-      const loginDate = new Date(loginTime);
-      const hoursDiff = (now.getTime() - loginDate.getTime()) / (1000 * 60 * 60);
-      
-      if (hoursDiff < 24) {
+    if (token && storedUser) {
+      // Verify token is still valid by checking with backend
+      authAPI.getMe().then(response => {
+        if (response.success && response.user) {
+          setIsLoggedIn(true);
+          setUser(response.user);
+        } else {
+          // Token expired or invalid
+          authAPI.logout();
+          setShowLoginModal(true);
+        }
+      }).catch(() => {
+        // Network error or server unavailable
+        // Allow offline access if token exists
         setIsLoggedIn(true);
-      } else {
-        // Session expired
-        localStorage.removeItem('isLoggedIn');
-        localStorage.removeItem('loginTime');
-        setShowLoginModal(true);
-      }
+        setUser(storedUser);
+      });
     } else {
       // Show login modal for new users
       const hasSeenLogin = localStorage.getItem('hasSeenLogin');
@@ -55,15 +69,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, []);
 
-  const login = () => {
+  const login = (token: string, userData: User) => {
+    localStorage.setItem('authToken', token);
+    localStorage.setItem('user', JSON.stringify(userData));
+    localStorage.setItem('isLoggedIn', 'true');
+    localStorage.setItem('loginTime', new Date().toISOString());
     setIsLoggedIn(true);
+    setUser(userData);
     setShowLoginModal(false);
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await authAPI.logout();
     setIsLoggedIn(false);
-    localStorage.removeItem('isLoggedIn');
-    localStorage.removeItem('loginTime');
+    setUser(null);
     setShowLoginModal(true);
   };
 
@@ -71,12 +90,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setShowLoginModal(false);
   };
 
+  const openLoginModal = () => {
+    setShowLoginModal(true);
+  };
+
   const value = {
     isLoggedIn,
     showLoginModal,
+    user,
     login,
     logout,
-    closeLoginModal
+    closeLoginModal,
+    openLoginModal
   };
 
   return (
